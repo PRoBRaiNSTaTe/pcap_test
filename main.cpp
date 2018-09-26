@@ -1,46 +1,93 @@
 #include <pcap.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#define ETHER_ADDR_LEN 6
+#define tcp_hdr_len_except_payload 20
+#define SportLen 2
+#define DportLen 2
+#define ETHERTYPE_IP  0X0800
+#define IPPROTo_TCP 0X06
 
-int arr[1000];
+void mac_print(u_int8_t *p)
+{
+  for(int i=0;i<(ETHER_ADDR_LEN);i++)
+	printf("%02X ",p[i]);
+  printf("\n");
+}
+
+void data_print(u_int8_t *p,u_int8_t n)
+{
+  for(u_int8_t i=0;i<n;i++)
+	printf("%02X ",p[i]);
+  printf("\n");
+}
 
 void dump(const u_char*p, int len)
 {
   for(int i=0;i<len;i++)
   {
-    arr[i]=*p;
-    printf("%02x ",*p);
-    p++;
+    printf("%02x ",p[i]);
     if((i & 0x0f)==0x0f)
 	printf("\n");
   }
 	printf("\n");
-	if(arr[12]==0x08 && arr[13]==0x00)
+
+	struct ethernet_hdr
 	{
-	   printf("destination mac: %02X %02X %02X %02X %02X %02X\n",arr[0],arr[1],arr[2],arr[3],arr[4],arr[5]);
-        printf("source mac: %02X %02X %02X %02X %02X %02X\n",arr[6],arr[7],arr[8],arr[9],arr[10],arr[11]);
-	}
+	  u_int8_t ether_dhost[ETHER_ADDR_LEN];
+	  u_int8_t ether_shost[ETHER_ADDR_LEN];
+	  u_int16_t ether_type;
+	};
 	
-	if(arr[14]>=0x40 && arr[14]<=0x4f)
+	struct ipv4_hdr
 	{
-	  printf("Source IP: %02d.%02d.%02d.%02d\n",arr[26],arr[27],arr[28],arr[29]);
-	  printf("Destination IP: %02d.%02d.%02d.%02d\n",arr[30],arr[31],arr[32],arr[33]);
-	}
-	if(arr[23]==0x06)
+	  u_int8_t IPverIHL;
+	  u_int8_t TOS;
+	  u_int16_t IPLen;
+	  u_int16_t PacketID;
+	  u_int16_t IPFlag;
+	  u_int8_t TTL;
+	  u_int8_t ProtocolType;
+	  u_int16_t IPHeaderChecksum;
+	  u_int8_t SIP[4];
+	  u_int8_t DIP[4];
+	};
+
+	struct tcp_hdr
 	{
-	  int iplen=arr[16]*16+arr[17];
- 	  printf("Source port: %d\n",arr[34]*256+arr[35]);
-	  printf("Destination port: %d\n",arr[36]*256+arr[37]);
-	  printf("Payload(max:32byte): ");
-		for(int i=55;i<87;i++)
+	  u_int16_t Sport;
+	  u_int16_t Dport;
+	  u_int8_t TcpInfo[tcp_hdr_len_except_payload-SportLen-DportLen];
+	  u_int8_t Payload[32];
+	};
+
+	struct ethernet_hdr *eth=(struct ethernet_hdr *)p;
+	printf("Source mac: ");
+	mac_print(eth->ether_shost);
+	printf("Destination mac: ");
+	mac_print(eth->ether_dhost);
+
+	if(htons(eth->ether_type)==ETHERTYPE_IP)
+	{
+	  struct ipv4_hdr *ip=(struct ipv4_hdr *)(p+sizeof(struct ethernet_hdr));
+	  printf("Source IP: ");
+	  printf("%s\n",inet_ntoa(*(struct in_addr*)&ip->SIP));
+	  printf("Destination IP: ");
+	  printf("%s\n",inet_ntoa(*(struct in_addr*)&ip->DIP));
+
+		if(ip->ProtocolType==IPPROTO_TCP)
 		{
-		  printf("%02X ",arr[i]);
-		  iplen--;
-		  if(iplen==40)
-		    break;
+	 	 struct tcp_hdr *tcp=(struct tcp_hdr *)(p+sizeof(struct ethernet_hdr)+sizeof(struct ipv4_hdr));
+	 	 printf("Source port: ");
+	 	 printf("%d\n",htons(tcp->Sport));
+	 	 printf("Destination port: ");
+	 	 printf("%d\n",htons(tcp->Dport));
+		
+		 (htons(ip->IPLen)>=sizeof(struct ipv4_hdr)+sizeof(struct tcp_hdr))? data_print(tcp->Payload,32):data_print(tcp->Payload,32+htons(ip->IPLen)-sizeof(struct ipv4_hdr)-sizeof(struct tcp_hdr));
 		}
-	  printf("\n");
 	}
-	
 	printf("\n");
 }
 void usage() {
